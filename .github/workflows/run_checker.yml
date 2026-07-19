@@ -1,0 +1,56 @@
+name: Run VM Task Checker
+
+on:
+  workflow_dispatch: # Позволяет запускать проверку вручную кнопкой в интерфейсе GitHub
+
+jobs:
+  check-task:
+    runs-on: ubuntu-latest # Полноценная виртуальная машина Ubuntu в облаке
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 1. Настраиваем реальный Sudo Rights
+    - name: Configure Sudo
+      run: |
+        sudo useradd -m -s /bin/bash student
+        echo "student ALL=(ALL:ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/student
+        sudo chmod 0440 /etc/sudoers.d/student
+
+    # 2. Настраиваем реальный Swap размером 1 ГБ
+    - name: Configure Swap
+      run: |
+        sudo swapoff -a # Отключаем стандартный swap воркера, если он есть
+        sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
+        echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
+
+    # 3. Настраиваем реальный LVM (в облаке GitHub Actions есть свободное место на диске)
+    - name: Configure LVM
+      run: |
+        # Создаем виртуальный диск через loopback, но с полноценными правами ядра
+        sudo dd if=/dev/zero of=/lvm_disk.img bs=1M count=2048
+        LOOP_DEV=$(sudo losetup -f --show /lvm_disk.img)
+        
+        # Создаем PV, VG и LV
+        sudo pvcreate $LOOP_DEV
+        sudo vgcreate student $LOOP_DEV
+        sudo lvcreate -l 50%FREE -n student student
+        
+        # Форматируем в ext4
+        sudo mkfs.ext4 /dev/student/student
+        sudo mkdir -p /lvm/student
+        
+        # Получаем UUID и пишем в fstab
+        LV_UUID=$(sudo blkid -o value -s UUID /dev/mapper/student-student)
+        echo "UUID=$LV_UUID /lvm/student ext4 defaults 0 2" | sudo tee -a /etc/fstab
+        sudo mount -a
+
+    # 4. Запуск оригинального чекера
+    - name: Run Checker
+      run: |
+        chmod +x ./checker-3
+        sudo ./checker-3 -course 'linux' -course-version 'v1.0' -test-suite 'vm_task'
