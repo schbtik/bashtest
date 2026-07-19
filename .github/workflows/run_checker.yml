@@ -50,7 +50,9 @@ jobs:
         sudo mount -a
 
     # 4. Запуск оригинального чекера
+    # 4. Запуск оригинального чекера от имени пользователя student
     - name: Run Checker
       run: |
         chmod +x ./checker-3
-        sudo ./checker-3 -course 'linux' -course-version 'v1.0' -test-suite 'vm_task'
+        chmod 777 ./ # Даем доступ пользователю student к текущей папке
+        sudo -u student ./checker-3 -course 'linux' -course-version 'v1.0' -test-suite 'vm_task'
